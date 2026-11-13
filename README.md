@@ -1,4 +1,6 @@
-# dsh-compaction-policy
+# 智能压缩管家
+
+`dsh-compaction-policy`
 
 简体中文 | [English](README.en.md)
 
