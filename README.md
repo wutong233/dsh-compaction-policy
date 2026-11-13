@@ -1,4 +1,4 @@
-# 智能压缩管家
+# DSH上下文压缩管理
 
 `dsh-compaction-policy`
 
