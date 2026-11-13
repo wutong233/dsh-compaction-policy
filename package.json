@@ -12,7 +12,8 @@
   "files": [
     "index.js",
     "client.js",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "README.en.md"
   ],
   "license": "MIT",
   "dsh": {

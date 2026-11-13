@@ -1,118 +1,85 @@
 # dsh-compaction-policy
 
-One compaction policy for every DSH agent preset, kept correct across DSH upgrades — and editable from the Web UI.
+简体中文 | [English](README.en.md)
 
-## Why this exists
+为 DeepSeek Harness（DSH）的所有智能体预设统一配置上下文压缩策略，并在 DSH 升级后根据已安装版本的预设自动更新。支持在 Web 界面中调整设置。
 
-`@deepseek-ai/dsh-web-app` disables the host-plane compaction trio
-(`compaction-basic`, `command-compact`, `tool-result-pruner`) with
-`- id: compaction-basic / disabled: true`. The instance an Agent actually uses is
-the one inside its preset (`standard`, `ptc`, `minimal`, `cordis`).
+## 安装
 
-A Loader patch replaces the targeted row's **whole** `config`, so applying a
-policy to a preset means restating its complete plugin list. Restated lists go
-stale silently: DSH ships a new tool, renames a package, or reorders plugins and
-the override keeps the old tree — no error, just missing capabilities.
+从 GitHub 的版本标签安装到 desktop 配置：
 
-## What it does
-
-On every start the plugin regenerates one marked region of the profile patch
-(`$DSH_HOME/profiles/<profile>/cordis.patch.yml`):
-
+```bash
+dsh plugin --profile desktop add github:wutong233/dsh-compaction-policy#v1.2.0
 ```
+
+安装后重启 DeepSeek Harness。其他配置请将 `desktop` 替换为对应名称。如果插件没有加载，请检查配置目录的 `package.json` 中，`dsh.profile.bundles` 是否包含 `dsh-compaction-policy`。
+
+本项目是独立插件，与 DeepSeek 无官方关联。
+
+## 工作原理
+
+DSH Web 应用会禁用宿主层的压缩插件，智能体实际使用的是各自预设（`standard`、`ptc`、`minimal`、`cordis`）中的实例。Loader 补丁会替换目标项的整个 `config`；如果手动复制完整的插件列表，DSH 升级后该列表可能悄然过时，导致新工具或其他功能缺失。
+
+本插件每次启动时，从**当前安装的 DSH** 读取各预设文件，并重新生成配置补丁 `$DSH_HOME/profiles/<profile>/cordis.patch.yml` 中的托管区域：
+
+```yaml
 # >>> dsh-compaction-policy — managed block, regenerated on start; edit nothing inside
 - id: preset-standard
-  ...
+  # ...
 # <<< dsh-compaction-policy
 ```
 
-Each entry is produced from the preset file of the **installed** DSH
-(`@deepseek-ai/dsh-web-app/presets/<id>.patch.yml`, read from `app.asar` when
-packaged). The transformation is textual: the shipped `- insert:` wrapper is
-removed, the list is dedented, and a `config` is added to the existing
-`compaction-basic` entry. Everything else — `!!js` conditions, nested groups,
-plan-mode prompts, future plugins — passes through byte-for-byte.
+它通过文本转换移除原始 `- insert:` 包装、调整缩进，并为现有 `compaction-basic` 项添加配置；`!!js` 条件、嵌套分组、计划模式提示词和其他插件内容保持不变。写入的补丁在**下次启动**时生效，不会在运行中的对话中途更改插件树。
 
-Writes are applied by the **next** start, never in a running turn, so a bad
-regenerate cannot destabilize a live session.
+## 设置页面
 
-## Settings page
+在 **设置 → 压缩** 中，可以调整各参数、查看默认值并单独重置：
 
-**Settings → 压缩 / Compaction** renders every parameter with its own control,
-its default, and a per-field reset:
-
-| Field | Default | Meaning |
+| 参数 | 默认值 | 说明 |
 |---|---|---|
-| `thresholdRatio` | `38 %` | Share of the context window that triggers compaction (stock DSH: 80 %) |
-| `headroomTokens` | `65536` | Safety headroom beyond the routed output reservation |
-| `retainTokens` | `140000` | Recent history kept verbatim (never combined with `retainRatio`) |
-| `maxTokens` | `24576` | Summary output cap |
-| `compactionRetries` | `1` | Extra compaction attempts |
-| `maxOverflowRetries` | `1` | Recovery retries after a context overflow |
-| `auto` | `true` | Automatic compaction |
-| `enabled` | `true` | While off, this plugin leaves the patch untouched |
-| `presets` | `standard, ptc, minimal, cordis` | Presets to cover |
-| `summarizationProvider` + `summarizationModel` | empty (the session's route) | Route that writes the summary; set together or not at all |
-| `summarization.reasoningEffort` | `high` | Thinking level sent with the summary call only (`inherit` sends none) |
+| `thresholdRatio` | `38%` | 触发压缩的上下文窗口比例（DSH 原始默认值为 80%） |
+| `headroomTokens` | `65536` | 在路由输出预留之外额外保留的 token 数 |
+| `retainTokens` | `140000` | 逐字保留的最近历史 token 数；不与 `retainRatio` 同时使用 |
+| `maxTokens` | `24576` | 摘要输出的 token 上限 |
+| `compactionRetries` | `1` | 额外压缩重试次数 |
+| `maxOverflowRetries` | `1` | 上下文溢出后的恢复重试次数 |
+| `auto` | `true` | 是否自动压缩 |
+| `enabled` | `true` | 关闭后插件不再修改补丁 |
+| `presets` | `standard, ptc, minimal, cordis` | 应用策略的预设 |
+| `summarizationProvider` + `summarizationModel` | 空（使用会话路由） | 生成摘要的路由；两项需同时设置或同时留空 |
+| `summarization.reasoningEffort` | `high` | 仅用于摘要调用的思考强度；选择 `inherit` 时不发送该参数 |
 
-Trigger: `T = floor(min(W × ratio, W − O − headroom))` per route.
+每条路由的触发阈值为 `T = floor(min(W × ratio, W − O − headroom))`。
 
-The thinking level is the one setting that is not a `compaction-basic` field:
-DSH has no config key for it, so the plugin applies it through the `llm/stream`
-waterfall and touches only calls that declare `purpose: 'compaction'` — your own
-turns and every other request through the same provider keep whatever they
-asked for. Stock DSH sends no effort there, so a summary used to run at whatever
-the provider defaulted to; a provider default the model does not declare made
-every `/compact` fail with `does not support reasoning effort "…"` while the
-chat picker kept working. Two independent levers now cover that: this level, and
-the summary route above. If the level you pick is not declared by the model that
-writes the summary, the compaction error names both; pick another level, point
-the route at a model that declares it, or choose `inherit`.
+摘要思考强度不是 `compaction-basic` 字段：插件通过 `llm/stream` 钩子仅修改标记为 `purpose: 'compaction'` 的调用，其他请求保留原有设置。如果摘要模型不支持所选强度，压缩错误会指出模型和强度；可以换一个强度、指定支持该强度的摘要路由，或选择 `inherit`。
 
-The page reads and writes `GET`/`POST /compaction-policy/config` on the Host
-half. A save validates every field, writes
-`$DSH_HOME/profiles/<profile>/compaction-policy.json`, and immediately
-regenerates the managed region, so the page can report which presets were
-updated. Only values that differ from the defaults are stored: clearing a field
-to its default **removes** it, so an untouched parameter keeps following future
-DSH numbers instead of freezing today's.
+设置页面通过宿主端的 `GET`/`POST /compaction-policy/config` 读取和保存。保存时会校验字段、写入 `$DSH_HOME/profiles/<profile>/compaction-policy.json`，并立即重新生成托管区域，供下次启动使用。只保存不同于默认值的设置；重置字段会从文件中移除它。
 
-The policy is resolved from three layers, weakest first:
+配置按以下顺序覆盖，后者优先：
 
-1. the defaults in this package,
-2. `compaction-policy.json`, written only by this page,
-3. an explicit `config.policy` in the profile patch — the hand-written escape
-   hatch. Such a field wins, and the page marks it **pinned by profile YAML**
-   instead of silently ignoring an edit.
+1. 插件内置默认值；
+2. 设置页面写入的 `compaction-policy.json`；
+3. 配置补丁中显式指定的 `config.policy`。被 YAML 固定的字段会在页面中标明。
 
-The summary thinking level follows the same three layers, with
-`config.summarization.reasoningEffort` as its pin.
+摘要思考强度也遵循相同优先级，其 YAML 固定项为 `config.summarization.reasoningEffort`。设置接口使用 DSH Web 界面相同的 Host/Origin 和浏览器凭据检查（`requestRejection`），仅供通过认证的页面访问。
 
-The route is not public: it asks Connection for the same Host/Origin fence and
-browser-credential verdict as the rest of the Web surface (`requestRejection`),
-so only an authenticated page of this deployment can read or write it.
+## 配置文件
 
-The region regenerates again on every start, so the file remains the single
-source for both the page and the boot-time rewrite.
-
-## Configuration file
-
-The page writes `compaction-policy.json`; the profile patch keeps its normal
-row form for anyone who wants to pin a value or switch the plugin off in YAML:
+也可以在配置补丁中固定参数或关闭插件：
 
 ```yaml
 - id: compaction-policy
   name: 'dsh-compaction-policy'
   config:
-    enabled: true                                  # false leaves the patch untouched
-    presets: [standard, ptc, minimal, cordis]      # subset to cover fewer presets
+    enabled: true                                  # false 时不修改补丁
+    presets: [standard, ptc, minimal, cordis]      # 可只选择部分预设
     policy:
-      thresholdRatio: 0.38                         # a pinned field; the page shows it locked
+      thresholdRatio: 0.38                         # 页面会将此项显示为已锁定
     summarization:
-      reasoningEffort: medium                      # also pinnable; `''` means "send none"
+      reasoningEffort: medium                      # 也可固定；'' 表示不发送强度
 ```
 
-The JSON document the page owns:
+设置页面管理的 JSON 示例：
 
 ```json
 {
@@ -125,46 +92,29 @@ The JSON document the page owns:
 }
 ```
 
-`lastRun` is bookkeeping for the page's coverage summary; editing or deleting it
-is harmless.
+`lastRun` 用于页面显示上次更新情况，可以安全地编辑或删除。
 
-## Install
-
-Install the tagged release from GitHub into the desktop profile:
+## 验证
 
 ```bash
-dsh plugin --profile desktop add github:wutong233/dsh-compaction-policy#v1.2.0
-```
-
-Restart DeepSeek Harness after installation. For another profile, replace
-`desktop` with its name. The plugin command adds the bundle to the profile;
-check that `dsh-compaction-policy` appears in `dsh.profile.bundles` in the
-profile's `package.json` if it does not load.
-
-This project is an independent plugin and is not affiliated with DeepSeek.
-
-## Verify
-
-```bash
-# regenerate + report without booting DSH (Electron runtime needed for app.asar)
+# 不启动 DSH，重新生成并报告结果（读取 app.asar 需要 Electron 运行时）
 "<DeepSeek Harness.exe>" --input-type=module \
   -e "import('dsh-compaction-policy').then(m => m.sync({ patchPath: '<profile>/cordis.patch.yml' }))"
 
-curl -s http://127.0.0.1:<port>/compaction-policy/config   # settings page payload
+curl -s http://127.0.0.1:<port>/compaction-policy/config  # 设置页面数据
 ```
 
-A second `sync` returns `{ changed: false }`; that is the idempotence check.
+再次执行 `sync` 时返回 `{ changed: false }`，表示生成结果具有幂等性。
 
-## Known limits
+## 已知限制
 
-- One start behind: an upgrade that changes a preset is picked up on the start
-  after the upgrade, not during it.
-- Requires a writable profile patch; a read-only profile logs and does nothing.
-- The region is owned: hand edits inside the markers are replaced on next start.
-- The settings page exists only in the Web profile (it needs `webServer`); a
-  headless profile keeps the regeneration and drops the routes.
-- The thinking level reaches `purpose: 'compaction'` calls only. DSH freezes a
-  request it wants immutable, and a frozen one keeps no level; DSH's own
-  summaries are not frozen, so this applies in practice.
-- The page's JSON file is per profile, so two profiles can hold different
-  policies while sharing one installation.
+- DSH 升级后改变的预设，在升级后的下一次启动才会被重新生成并应用。
+- 配置补丁必须可写；只读配置会记录日志，不会修改文件。
+- 标记之间的托管区域在下次启动时会被覆盖，请勿在其中手动编辑。
+- 设置页面需要 `webServer`，仅在 Web 配置中可用；无界面配置仍可重新生成补丁，但不提供设置路由。
+- 思考强度只应用于 `purpose: 'compaction'` 的调用。被冻结的不可变请求不会获得该参数；DSH 自身的摘要请求通常未被冻结。
+- 设置 JSON 按配置分别保存；多个配置可共享插件安装，同时使用不同的策略。
+
+## 许可证
+
+[MIT](LICENSE)
