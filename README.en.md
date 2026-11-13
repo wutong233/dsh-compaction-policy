@@ -4,6 +4,10 @@
 
 One compaction policy for every DSH agent preset, kept correct across DSH upgrades — and editable from the Web UI.
 
+## Preview
+
+![Compaction policy settings screen](assets/compaction-settings.png)
+
 ## Why this exists
 
 `@deepseek-ai/dsh-web-app` disables the host-plane compaction trio

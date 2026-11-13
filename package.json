@@ -13,7 +13,8 @@
     "index.js",
     "client.js",
     "cordis.patch.yml",
-    "README.en.md"
+    "README.en.md",
+    "assets/compaction-settings.png"
   ],
   "license": "MIT",
   "dsh": {

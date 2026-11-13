@@ -4,6 +4,10 @@
 
 为 DeepSeek Harness（DSH）的所有智能体预设统一配置上下文压缩策略，并在 DSH 升级后根据已安装版本的预设自动更新。支持在 Web 界面中调整设置。
 
+## 效果展示
+
+![压缩策略设置界面](assets/compaction-settings.png)
+
 ## 安装
 
 从 GitHub 的版本标签安装到 desktop 配置：
