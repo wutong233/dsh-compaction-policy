@@ -1,0 +1,9 @@
+# dsh-compaction-policy — mounts the policy plugin.
+#
+# The plugin owns a marked region of the profile patch and regenerates it from
+# the presets of the installed DSH on every start. It deliberately ships no
+# static preset override here: anything restated in a bundle would go stale on
+# the next upgrade, which is the exact failure this bundle removes.
+- insert:
+    - id: compaction-policy
+      name: 'dsh-compaction-policy'
